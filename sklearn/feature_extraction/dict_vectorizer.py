@@ -4,6 +4,7 @@
 
 from array import array
 from collections import Mapping
+from itertools import product, chain
 from operator import itemgetter
 
 import numpy as np
@@ -116,14 +117,18 @@ class DictVectorizer(BaseEstimator, TransformerMixin):
         """
         feature_names = []
         vocab = {}
+        vocab_types = {}
 
         for x in X:
             for f, v in six.iteritems(x):
+                vtype = type(v)
                 if isinstance(v, six.string_types):
+                    vtype = six.string_types
                     f = "%s%s%s" % (f, self.separator, v)
                 if f not in vocab:
                     feature_names.append(f)
                     vocab[f] = len(vocab)
+                    vocab_types[f] = vtype
 
         if self.sort:
             feature_names.sort()
@@ -131,6 +136,7 @@ class DictVectorizer(BaseEstimator, TransformerMixin):
 
         self.feature_names_ = feature_names
         self.vocabulary_ = vocab
+        self.vocabulary_types_ = vocab_types
 
         return self
 
@@ -148,9 +154,11 @@ class DictVectorizer(BaseEstimator, TransformerMixin):
         if fitting:
             feature_names = []
             vocab = {}
+            vocab_types = {}
         else:
             feature_names = self.feature_names_
             vocab = self.vocabulary_
+            vocab_types = self.vocabulary_types_
 
         # Process everything as sparse regardless of setting
         X = [X] if isinstance(X, Mapping) else X
@@ -165,7 +173,9 @@ class DictVectorizer(BaseEstimator, TransformerMixin):
         # same time
         for x in X:
             for f, v in six.iteritems(x):
+                vtype = type(v)
                 if isinstance(v, six.string_types):
+                    vtype = six.string_types
                     f = "%s%s%s" % (f, self.separator, v)
                     v = 1
                 if f in vocab:
@@ -177,6 +187,7 @@ class DictVectorizer(BaseEstimator, TransformerMixin):
                         vocab[f] = len(vocab)
                         indices.append(vocab[f])
                         values.append(dtype(v))
+                        vocab_types[f] = vtype
 
             indptr.append(len(indices))
 
@@ -207,6 +218,7 @@ class DictVectorizer(BaseEstimator, TransformerMixin):
         if fitting:
             self.feature_names_ = feature_names
             self.vocabulary_ = vocab
+            self.vocabulary_types_ = vocab_types
 
         return result_matrix
 
@@ -258,15 +270,20 @@ class DictVectorizer(BaseEstimator, TransformerMixin):
         n_samples = X.shape[0]
 
         names = self.feature_names_
+        types = self.vocabulary_types_
+        vocab = self.vocabulary_
+        index = dict((v, k) for k, v in six.iteritems(vocab))
         dicts = [dict_type() for _ in xrange(n_samples)]
 
         if sp.issparse(X):
-            for i, j in zip(*X.nonzero()):
+            nonzero = zip(*X.nonzero())
+            nonstring = product(range(n_samples), [vocab[f] for f in types if types[f] is not six.string_types])
+            for i, j in chain(nonzero, nonstring):
                 dicts[i][names[j]] = X[i, j]
         else:
             for i, d in enumerate(dicts):
                 for j, v in enumerate(X[i, :]):
-                    if v != 0:
+                    if types[index[j]] is not six.string_types or v != 0:
                         d[names[j]] = X[i, j]
 
         return dicts
